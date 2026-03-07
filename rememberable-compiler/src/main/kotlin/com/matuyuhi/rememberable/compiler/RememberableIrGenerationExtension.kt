@@ -1,4 +1,4 @@
-package io.github.matuyuhi.rememberable.compiler
+package com.matuyuhi.rememberable.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext

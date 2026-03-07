@@ -1,4 +1,4 @@
-package io.github.matuyuhi.rememberable.compiler
+package com.matuyuhi.rememberable.compiler
 
 import com.google.auto.service.AutoService
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension

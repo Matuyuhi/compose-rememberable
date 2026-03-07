@@ -1,4 +1,4 @@
-package io.github.matuyuhi.rememberable.compiler
+package com.matuyuhi.rememberable.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
@@ -24,8 +24,7 @@ class RememberableIrTransformer(
     private val pluginContext: IrPluginContext,
 ) : IrElementTransformerVoid() {
 
-    private val rememberableAnnotationFqName = FqName("io.github.matuyuhi.rememberable.Rememberable")
-    private val parcelableFqName = FqName("android.os.Parcelable")
+    private val rememberableAnnotationFqName = FqName("com.matuyuhi.rememberable.Rememberable")
     private val bundleClassId = ClassId.topLevel(FqName("android.os.Bundle"))
     private val saverClassId = ClassId.topLevel(FqName("androidx.compose.runtime.saveable.Saver"))
 
@@ -38,25 +37,10 @@ class RememberableIrTransformer(
             return result
         }
 
-        // Check if class implements Parcelable
-        if (!declaration.implementsParcelable()) {
-            error(
-                "Class '${declaration.name.asString()}' is annotated with @Rememberable " +
-                    "but does not implement android.os.Parcelable. " +
-                    "Add Parcelable implementation (e.g., use @Parcelize)."
-            )
-        }
-
         // Generate Saver property in companion object
         generateSaverProperty(declaration)
 
         return result
-    }
-
-    private fun IrClass.implementsParcelable(): Boolean {
-        return superTypes.any { superType ->
-            superType.classFqName?.asString() == parcelableFqName.asString()
-        }
     }
 
     private fun generateSaverProperty(targetClass: IrClass) {
@@ -71,12 +55,12 @@ class RememberableIrTransformer(
         val bundleClassSymbol = pluginContext.referenceClass(bundleClassId) ?: return
         val saverClassSymbol = pluginContext.referenceClass(saverClassId) ?: return
 
-        // Find the Saver() factory function
+        // Find Saver() factory function
         val saverFactoryFunction = pluginContext.referenceFunctions(
             CallableId(FqName("androidx.compose.runtime.saveable"), Name.identifier("Saver"))
         ).firstOrNull() ?: return
 
-        // Build the Saver type: Saver<TargetClass, Bundle>
+        // Build Saver type: Saver<TargetClass, Bundle>
         val saverType = saverClassSymbol.typeWith(
             targetClass.defaultType,
             bundleClassSymbol.defaultType,
@@ -84,7 +68,7 @@ class RememberableIrTransformer(
 
         val irFactory = pluginContext.irFactory
 
-        // Create the property using builder DSL
+        // Create property using builder DSL
         val saverProperty = irFactory.buildProperty {
             name = Name.identifier("Saver")
             visibility = DescriptorVisibilities.PUBLIC
@@ -152,20 +136,8 @@ class RememberableIrTransformer(
             .firstOrNull { it.valueParameters.isEmpty() }
             ?: error("Bundle() constructor not found")
 
-        // Bundle.putParcelable
-        val putParcelableFunction = bundleClassSymbol.owner.functions
-            .firstOrNull { func ->
-                func.name.asString() == "putParcelable" &&
-                    func.valueParameters.size == 2
-            } ?: error("Bundle.putParcelable not found")
-
-        // Bundle.getParcelable (deprecated version with single String parameter)
-        val getParcelableFunction = bundleClassSymbol.owner.functions
-            .firstOrNull { func ->
-                func.name.asString() == "getParcelable" &&
-                    func.valueParameters.size == 1 &&
-                    func.valueParameters[0].type.classFqName?.asString() == "kotlin.String"
-            } ?: error("Bundle.getParcelable not found")
+        // Get all properties
+        val properties = targetClass.properties.filter { it.isVar && !it.isExternal }.toList()
 
         return builder.irCall(saverFunction).apply {
             // Type arguments: Saver<TargetClass, Bundle>
@@ -175,12 +147,12 @@ class RememberableIrTransformer(
             // save lambda
             putValueArgument(0, builder.buildSaveLambda(
                 pluginContext, targetClass, bundleClassSymbol,
-                bundleConstructor, putParcelableFunction
+                bundleConstructor, properties
             ))
 
             // restore lambda
             putValueArgument(1, builder.buildRestoreLambda(
-                pluginContext, targetClass, bundleClassSymbol, getParcelableFunction
+                pluginContext, targetClass, bundleClassSymbol, properties
             ))
         }
     }
@@ -190,7 +162,7 @@ class RememberableIrTransformer(
         targetClass: IrClass,
         bundleClassSymbol: IrClassSymbol,
         bundleConstructor: IrConstructor,
-        putParcelableFunction: IrSimpleFunction,
+        properties: List<IrProperty>,
     ): IrExpression {
         val irFactory = pluginContext.irFactory
 
@@ -215,10 +187,19 @@ class RememberableIrTransformer(
             body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
                 val bundleVar = irTemporary(irCallConstructor(bundleConstructor.symbol, emptyList()))
 
-                +irCall(putParcelableFunction).apply {
-                    dispatchReceiver = irGet(bundleVar)
-                    putValueArgument(0, irString("value"))
-                    putValueArgument(1, irGet(valueParam))
+                // Save each property to Bundle
+                properties.forEach { property ->
+                    val putFunction = bundleClassSymbol.owner.functions
+                        .firstOrNull { func ->
+                            func.name.asString() == "putString" &&
+                                func.valueParameters.size == 2
+                        } ?: error("Bundle.putString not found")
+
+                    +irCall(putFunction).apply {
+                        dispatchReceiver = irGet(bundleVar)
+                        putValueArgument(0, irString(property.name.asString()))
+                        putValueArgument(1, irGetField(irGet(valueParam), property.backingField!!))
+                    }
                 }
 
                 +irReturn(irGet(bundleVar))
@@ -233,9 +214,9 @@ class RememberableIrTransformer(
 
         return irBlock(resultType = saveLambdaType) {
             +saveLambda
-            +irFunctionReference(
+            +irCallable(
+                callableId = CallableId(saveLambda.symbol.ownerSymbol.name, saveLambda.symbol.name),
                 type = saveLambdaType,
-                symbol = saveLambda.symbol,
             )
         }
     }
@@ -244,7 +225,7 @@ class RememberableIrTransformer(
         pluginContext: IrPluginContext,
         targetClass: IrClass,
         bundleClassSymbol: IrClassSymbol,
-        getParcelableFunction: IrSimpleFunction,
+        properties: List<IrProperty>,
     ): IrExpression {
         val irFactory = pluginContext.irFactory
 
@@ -262,11 +243,27 @@ class RememberableIrTransformer(
             )
 
             body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
-                val getCall = irCall(getParcelableFunction).apply {
-                    dispatchReceiver = irGet(bundleParam)
-                    putValueArgument(0, irString("value"))
+                // Get the primary constructor
+                val primaryConstructor = targetClass.primaryConstructor
+                    ?: error("Primary constructor not found")
+
+                // Restore each property from Bundle
+                val constructorArgs = properties.map { property ->
+                    val getStringFunction = bundleClassSymbol.owner.functions
+                        .firstOrNull { func ->
+                            func.name.asString() == "getString" &&
+                                func.valueParameters.size == 2
+                        } ?: error("Bundle.getString not found")
+
+                    irCall(getStringFunction).apply {
+                        dispatchReceiver = irGet(bundleParam)
+                        putValueArgument(0, irString(property.name.asString()))
+                        putValueArgument(1, irString("")) // default value
+                    }
                 }
-                +irReturn(irAs(getCall, targetClass.defaultType.makeNullable()))
+
+                // Create instance using primary constructor
+                +irReturn(irCallConstructor(primaryConstructor.symbol, constructorArgs))
             }
         }
 
@@ -277,9 +274,9 @@ class RememberableIrTransformer(
 
         return irBlock(resultType = restoreLambdaType) {
             +restoreLambda
-            +irFunctionReference(
+            +irCallable(
+                callableId = CallableId(restoreLambda.symbol.ownerSymbol.name, restoreLambda.symbol.name),
                 type = restoreLambdaType,
-                symbol = restoreLambda.symbol,
             )
         }
     }

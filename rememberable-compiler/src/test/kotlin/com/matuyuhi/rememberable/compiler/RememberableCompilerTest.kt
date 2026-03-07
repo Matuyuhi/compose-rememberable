@@ -1,4 +1,4 @@
-package io.github.matuyuhi.rememberable.compiler
+package com.matuyuhi.rememberable.compiler
 
 import com.tschuchort.compiletesting.JvmCompilationResult
 import com.tschuchort.compiletesting.KotlinCompilation
@@ -13,19 +13,37 @@ import org.junit.Test
 class RememberableCompilerTest {
 
     @Test
-    fun `compilation succeeds for Rememberable Parcelable data class`() {
+    fun `compilation succeeds for Rememberable data class`() {
         val source = SourceFile.kotlin(
             "TestClass.kt",
             """
             package test
 
-            import io.github.matuyuhi.rememberable.Rememberable
-            import android.os.Parcelable
+            import com.matuyuhi.rememberable.Rememberable
 
             @Rememberable
-            data class FilterState(val query: String, val page: Int) : Parcelable {
-                override fun describeContents(): Int = 0
-                override fun writeToParcel(dest: android.os.Parcel, flags: Int) {}
+            data class FilterState(val query: String, val page: Int)
+            """.trimIndent()
+        )
+
+        val result = compile(source)
+        assertEquals(KotlinCompilation.ExitCode.OK, result.exitCode)
+    }
+
+    @Test
+    fun `compilation succeeds for Rememberable non-data class`() {
+        val source = SourceFile.kotlin(
+            "TestClass.kt",
+            """
+            package test
+
+            import com.matuyuhi.rememberable.Rememberable
+
+            @Rememberable
+            class UserState(val query: String, val page: Int) {
+                companion object {
+                    private val DEFAULT_PAGE = 0
+                }
             }
             """.trimIndent()
         )
@@ -35,39 +53,13 @@ class RememberableCompilerTest {
     }
 
     @Test
-    fun `compilation fails for Rememberable class without Parcelable`() {
-        val source = SourceFile.kotlin(
-            "TestClass.kt",
-            """
-            package test
-
-            import io.github.matuyuhi.rememberable.Rememberable
-
-            @Rememberable
-            data class BadState(val query: String)
-            """.trimIndent()
-        )
-
-        val result = compile(source)
-        assertEquals(KotlinCompilation.ExitCode.INTERNAL_ERROR, result.exitCode)
-        assertTrue(
-            result.messages.contains("does not implement android.os.Parcelable")
-        )
-    }
-
-    @Test
     fun `class without Rememberable annotation is not modified`() {
         val source = SourceFile.kotlin(
             "TestClass.kt",
             """
             package test
 
-            import android.os.Parcelable
-
-            data class PlainState(val query: String) : Parcelable {
-                override fun describeContents(): Int = 0
-                override fun writeToParcel(dest: android.os.Parcel, flags: Int) {}
-            }
+            data class PlainState(val query: String)
             """.trimIndent()
         )
 
@@ -81,6 +73,32 @@ class RememberableCompilerTest {
             companion.declaredFields.any { field -> field.name == "Saver" }
         }
         assertFalse("PlainState should not have a Saver", hasSaver)
+    }
+
+    @Test
+    fun `Saver property is generated in companion object`() {
+        val source = SourceFile.kotlin(
+            "TestClass.kt",
+            """
+            package test
+
+            import com.matuyuhi.rememberable.Rememberable
+
+            @Rememberable
+            data class UserState(val name: String, val age: Int)
+            """.trimIndent()
+        )
+
+        val result = compile(source)
+        assertEquals(KotlinCompilation.ExitCode.OK, result.exitCode)
+
+        // Verify Saver was generated
+        val clazz = result.classLoader.loadClass("test.UserState")
+        val companionClasses = clazz.declaredClasses
+        val hasSaver = companionClasses.any { companion ->
+            companion.declaredFields.any { field -> field.name == "Saver" }
+        }
+        assertTrue("UserState should have a Saver", hasSaver)
     }
 
     private fun compile(vararg sourceFiles: SourceFile): JvmCompilationResult {

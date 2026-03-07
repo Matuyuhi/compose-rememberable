@@ -1,4 +1,4 @@
-package io.github.matuyuhi.rememberable.compiler
+package com.matuyuhi.rememberable.compiler
 
 import com.google.auto.service.AutoService
 import org.jetbrains.kotlin.compiler.plugin.AbstractCliOption
@@ -12,6 +12,6 @@ class RememberableCommandLineProcessor : CommandLineProcessor {
     override val pluginOptions: Collection<AbstractCliOption> = emptyList()
 
     companion object {
-        const val PLUGIN_ID = "io.github.matuyuhi.rememberable"
+        const val PLUGIN_ID = "com.matuyuhi.rememberable"
     }
 }

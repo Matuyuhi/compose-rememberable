@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm")
     kotlin("kapt")
+    id("com.vanniktech.maven.publish") version "0.29.0"
 }
 
 kotlin {
@@ -8,19 +9,42 @@ kotlin {
 }
 
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
+    compileOnly(libs.kotlin.compiler.embeddable)
 
-    kapt("com.google.auto.service:auto-service:1.1.1")
-    compileOnly("com.google.auto.service:auto-service-annotations:1.1.1")
+    kapt(libs.auto.service)
+    compileOnly(libs.auto.service.annotations)
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
-    testImplementation("dev.zacsweers.kctfork:core:0.7.0")
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.kotlin.compiler.embeddable)
+    testImplementation(libs.kctfork.core)
+    testImplementation(libs.junit)
 
     testImplementation(project(":rememberable-annotations"))
 }
 
 tasks.test {
     useJUnit()
+}
+
+mavenPublishing {
+    pom {
+        url.set("https://github.com/matuyuhi/compose-rememberable")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("matuyuhi")
+                name.set("matuyuhi")
+            }
+        }
+        scm {
+            url.set("https://github.com/matuyuhi/compose-rememberable")
+            connection.set("scm:git:git://github.com/matuyuhi/compose-rememberable.git")
+            developerConnection.set("scm:git:ssh://github.com:matuyuhi/compose-rememberable.git")
+        }
+    }
 }
