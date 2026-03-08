@@ -30,5 +30,5 @@ kotlin-compiler-embeddable = { group = "org.jetbrains.kotlin", name = "kotlin-co
 kotlin-gradle-plugin-api = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin-api", version.ref = "kotlin" }
 auto-service = { group = "com.google.auto.service", name = "auto-service", version = "1.1.1" }
 auto-service-annotations = { group = "com.google.auto.service", name = "auto-service-annotations", version = "1.1.1" }
-kctfork-core = { group = "dev.zacsweers.kctfork", name = "core", version = "0.7.0" }
+kctfork-core = { group = "dev.zacsweers.kctfork", name = "core", version = "0.12.1" }
 

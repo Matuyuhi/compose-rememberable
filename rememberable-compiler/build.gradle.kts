@@ -6,6 +6,12 @@ plugins {
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        optIn.addAll(
+            "org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI",
+            "org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi",
+        )
+    }
 }
 
 dependencies {

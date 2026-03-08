@@ -70,7 +70,8 @@ class RememberableCompilerTest {
         val clazz = result.classLoader.loadClass("test.PlainState")
         val companionClasses = clazz.declaredClasses
         val hasSaver = companionClasses.any { companion ->
-            companion.declaredFields.any { field -> field.name == "Saver" }
+            companion.declaredFields.any { field -> field.name == "Saver" } ||
+                companion.declaredMethods.any { method -> method.name == "getSaver" }
         }
         assertFalse("PlainState should not have a Saver", hasSaver)
     }
@@ -96,7 +97,8 @@ class RememberableCompilerTest {
         val clazz = result.classLoader.loadClass("test.UserState")
         val companionClasses = clazz.declaredClasses
         val hasSaver = companionClasses.any { companion ->
-            companion.declaredFields.any { field -> field.name == "Saver" }
+            companion.declaredFields.any { field -> field.name == "Saver" } ||
+                companion.declaredMethods.any { method -> method.name == "getSaver" }
         }
         assertTrue("UserState should have a Saver", hasSaver)
     }

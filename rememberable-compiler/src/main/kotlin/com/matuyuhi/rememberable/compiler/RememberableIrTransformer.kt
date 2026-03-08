@@ -1,17 +1,21 @@
 package com.matuyuhi.rememberable.compiler
 
+import org.jetbrains.kotlin.DeprecatedForRemovalCompilerApi
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
-import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
-import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.declarations.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
+import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionExpressionImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrInstanceInitializerCallImpl
 import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
+import org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI
+import org.jetbrains.kotlin.ir.symbols.impl.IrValueParameterSymbolImpl
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
@@ -26,104 +30,76 @@ class RememberableIrTransformer(
 
     private val rememberableAnnotationFqName = FqName("com.matuyuhi.rememberable.Rememberable")
     private val bundleClassId = ClassId.topLevel(FqName("android.os.Bundle"))
-    private val saverClassId = ClassId.topLevel(FqName("androidx.compose.runtime.saveable.Saver"))
 
     override fun visitClass(declaration: IrClass): IrStatement {
-        // Process children first
         val result = super.visitClass(declaration)
 
-        // Check if class has @Rememberable annotation
         if (!declaration.hasAnnotation(rememberableAnnotationFqName)) {
             return result
         }
 
-        // Generate Saver property in companion object
-        generateSaverProperty(declaration)
+        val companion = declaration.companionObject() ?: return result
+
+        // Fill constructor body for FIR-generated companion objects
+        fillCompanionConstructorIfNeeded(companion)
+
+        val saverProperty = companion.properties.find { it.name.asString() == "Saver" } ?: return result
+
+        val backingField = saverProperty.backingField ?: return result
+        if (backingField.initializer != null) return result
+
+        fillSaverBody(declaration, companion, saverProperty, backingField)
 
         return result
     }
 
-    private fun generateSaverProperty(targetClass: IrClass) {
-        // Find or create companion object
-        val companion = targetClass.companionObject() ?: createCompanionObject(targetClass)
+    @OptIn(UnsafeDuringIrConstructionAPI::class)
+    private fun fillCompanionConstructorIfNeeded(companion: IrClass) {
+        val constructor = companion.constructors.firstOrNull { it.isPrimary } ?: return
+        if (constructor.body != null) return
 
-        // Check if Saver property already exists
-        if (companion.declarations.any { it is IrProperty && it.name.asString() == "Saver" }) {
-            return
+        constructor.body = DeclarationIrBuilder(pluginContext, constructor.symbol).irBlockBody {
+            +irDelegatingConstructorCall(
+                pluginContext.irBuiltIns.anyClass.owner.constructors.single()
+            )
+            +IrInstanceInitializerCallImpl(
+                UNDEFINED_OFFSET, UNDEFINED_OFFSET,
+                companion.symbol,
+                pluginContext.irBuiltIns.unitType,
+            )
         }
+    }
 
+    private fun fillSaverBody(
+        targetClass: IrClass,
+        companion: IrClass,
+        saverProperty: IrProperty,
+        backingField: IrField,
+    ) {
         val bundleClassSymbol = pluginContext.referenceClass(bundleClassId) ?: return
-        val saverClassSymbol = pluginContext.referenceClass(saverClassId) ?: return
 
-        // Find Saver() factory function
         val saverFactoryFunction = pluginContext.referenceFunctions(
             CallableId(FqName("androidx.compose.runtime.saveable"), Name.identifier("Saver"))
         ).firstOrNull() ?: return
 
-        // Build Saver type: Saver<TargetClass, Bundle>
-        val saverType = saverClassSymbol.typeWith(
-            targetClass.defaultType,
-            bundleClassSymbol.defaultType,
+        backingField.initializer = pluginContext.irFactory.createExpressionBody(
+            buildSaverExpression(
+                backingField,
+                targetClass,
+                bundleClassSymbol,
+                saverFactoryFunction.owner,
+            )
         )
 
-        val irFactory = pluginContext.irFactory
-
-        // Create property using builder DSL
-        val saverProperty = irFactory.buildProperty {
-            name = Name.identifier("Saver")
-            visibility = DescriptorVisibilities.PUBLIC
-            modality = Modality.FINAL
-            isVar = false
-        }.apply {
-            parent = companion
-        }
-
-        // Create backing field using builder DSL
-        val backingField = irFactory.buildField {
-            name = Name.identifier("Saver")
-            type = saverType
-            visibility = DescriptorVisibilities.PRIVATE
-            isFinal = true
-            isStatic = false
-            origin = IrDeclarationOrigin.PROPERTY_BACKING_FIELD
-        }.apply {
-            parent = companion
-            correspondingPropertySymbol = saverProperty.symbol
-            initializer = irFactory.createExpressionBody(
-                buildSaverExpression(
-                    pluginContext,
-                    this,
-                    targetClass,
-                    bundleClassSymbol,
-                    saverFactoryFunction.owner,
-                )
-            )
-        }
-
-        saverProperty.backingField = backingField
-
-        // Create getter using builder DSL
-        val getter = irFactory.buildFun {
-            name = Name.special("<get-Saver>")
-            returnType = saverType
-            visibility = DescriptorVisibilities.PUBLIC
-            modality = Modality.FINAL
-            origin = IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR
-        }.apply {
-            parent = companion
-            correspondingPropertySymbol = saverProperty.symbol
-            dispatchReceiverParameter = companion.thisReceiver?.copyTo(this)
-            body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
-                +irReturn(irGetField(irGet(dispatchReceiverParameter!!), backingField))
+        saverProperty.getter?.let { getter ->
+            getter.body = DeclarationIrBuilder(pluginContext, getter.symbol).irBlockBody {
+                +irReturn(irGetField(irGet(getter.dispatchReceiverParameter!!), backingField))
             }
         }
-
-        saverProperty.getter = getter
-        companion.declarations.add(saverProperty)
     }
 
+    @OptIn(DeprecatedForRemovalCompilerApi::class, UnsafeDuringIrConstructionAPI::class)
     private fun buildSaverExpression(
-        pluginContext: IrPluginContext,
         field: IrField,
         targetClass: IrClass,
         bundleClassSymbol: IrClassSymbol,
@@ -131,187 +107,170 @@ class RememberableIrTransformer(
     ): IrExpression {
         val builder = DeclarationIrBuilder(pluginContext, field.symbol)
 
-        // Bundle constructor
         val bundleConstructor = bundleClassSymbol.owner.constructors
             .firstOrNull { it.valueParameters.isEmpty() }
             ?: error("Bundle() constructor not found")
 
-        // Get all properties
-        val properties = targetClass.properties.filter { it.isVar && !it.isExternal }.toList()
+        val primaryConstructor = targetClass.primaryConstructor
+            ?: error("Primary constructor not found for ${targetClass.name}")
+        val constructorParamNames = primaryConstructor.valueParameters.map { it.name }.toSet()
+        val properties = targetClass.properties
+            .filter { it.name in constructorParamNames && !it.isExternal }
+            .toList()
 
-        return builder.irCall(saverFunction).apply {
-            // Type arguments: Saver<TargetClass, Bundle>
+        return builder.irCall(saverFunction.symbol).apply {
             putTypeArgument(0, targetClass.defaultType)
-            putTypeArgument(1, bundleClassSymbol.defaultType)
+            putTypeArgument(1, bundleClassSymbol.owner.defaultType)
 
-            // save lambda
             putValueArgument(0, builder.buildSaveLambda(
-                pluginContext, targetClass, bundleClassSymbol,
-                bundleConstructor, properties
+                targetClass, bundleClassSymbol, bundleConstructor, properties
             ))
 
-            // restore lambda
             putValueArgument(1, builder.buildRestoreLambda(
-                pluginContext, targetClass, bundleClassSymbol, properties
+                targetClass, bundleClassSymbol, primaryConstructor, properties
             ))
         }
     }
 
+    private fun createValueParameter(
+        parent: IrFunction,
+        name: String,
+        index: Int,
+        type: IrType,
+    ): IrValueParameter {
+        return pluginContext.irFactory.createValueParameter(
+            startOffset = UNDEFINED_OFFSET,
+            endOffset = UNDEFINED_OFFSET,
+            origin = IrDeclarationOrigin.DEFINED,
+            kind = IrParameterKind.Regular,
+            name = Name.identifier(name),
+            type = type,
+            isAssignable = false,
+            symbol = IrValueParameterSymbolImpl(),
+            varargElementType = null,
+            isCrossinline = false,
+            isNoinline = false,
+            isHidden = false,
+        ).apply {
+            this.parent = parent
+        }
+    }
+
+    @OptIn(DeprecatedForRemovalCompilerApi::class, UnsafeDuringIrConstructionAPI::class)
     private fun DeclarationIrBuilder.buildSaveLambda(
-        pluginContext: IrPluginContext,
         targetClass: IrClass,
         bundleClassSymbol: IrClassSymbol,
         bundleConstructor: IrConstructor,
         properties: List<IrProperty>,
     ): IrExpression {
         val irFactory = pluginContext.irFactory
+        val localParent = this.scope.getLocalDeclarationParent()
 
         val saveLambda = irFactory.buildFun {
             name = Name.special("<anonymous>")
-            returnType = bundleClassSymbol.defaultType.makeNullable()
+            returnType = bundleClassSymbol.owner.defaultType.makeNullable()
             origin = IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA
             visibility = DescriptorVisibilities.LOCAL
-        }.apply {
-            parent = this@buildSaveLambda.scope.getLocalDeclarationParent()
+        }
 
-            val saveScopeParam = addValueParameter(
-                "saveScopeReceiver",
-                pluginContext.irBuiltIns.anyNType,
-            )
+        saveLambda.parent = localParent
 
-            val valueParam = addValueParameter(
-                "value",
-                targetClass.defaultType,
-            )
+        val saveScopeParam = createValueParameter(saveLambda, "saveScopeReceiver", 0, pluginContext.irBuiltIns.anyNType)
+        val valueParam = createValueParameter(saveLambda, "value", 1, targetClass.defaultType)
 
-            body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
-                val bundleVar = irTemporary(irCallConstructor(bundleConstructor.symbol, emptyList()))
+        saveLambda.valueParameters = listOf(saveScopeParam, valueParam)
 
-                // Save each property to Bundle
-                properties.forEach { property ->
-                    val putFunction = bundleClassSymbol.owner.functions
-                        .firstOrNull { func ->
-                            func.name.asString() == "putString" &&
-                                func.valueParameters.size == 2
-                        } ?: error("Bundle.putString not found")
+        saveLambda.body = DeclarationIrBuilder(pluginContext, saveLambda.symbol).irBlockBody {
+            val bundleVar = irTemporary(irCallConstructor(bundleConstructor.symbol, emptyList()))
 
-                    +irCall(putFunction).apply {
-                        dispatchReceiver = irGet(bundleVar)
-                        putValueArgument(0, irString(property.name.asString()))
-                        putValueArgument(1, irGetField(irGet(valueParam), property.backingField!!))
-                    }
+            properties.forEach { property ->
+                val putFunction = bundleClassSymbol.owner.functions
+                    .firstOrNull { func ->
+                        func.name.asString() == "putString" &&
+                            func.valueParameters.size == 2
+                    } ?: error("Bundle.putString not found")
+
+                +irCall(putFunction.symbol).apply {
+                    dispatchReceiver = irGet(bundleVar)
+                    putValueArgument(0, irString(property.name.asString()))
+                    putValueArgument(1, irGetField(irGet(valueParam), property.backingField!!))
                 }
-
-                +irReturn(irGet(bundleVar))
             }
+
+            +irReturn(irGet(bundleVar))
         }
 
         val saveLambdaType = pluginContext.irBuiltIns.functionN(2).typeWith(
             pluginContext.irBuiltIns.anyNType,
             targetClass.defaultType,
-            bundleClassSymbol.defaultType.makeNullable(),
+            bundleClassSymbol.owner.defaultType.makeNullable(),
         )
 
-        return irBlock(resultType = saveLambdaType) {
-            +saveLambda
-            +irCallable(
-                callableId = CallableId(saveLambda.symbol.ownerSymbol.name, saveLambda.symbol.name),
-                type = saveLambdaType,
-            )
-        }
+        return IrFunctionExpressionImpl(
+            startOffset = UNDEFINED_OFFSET,
+            endOffset = UNDEFINED_OFFSET,
+            type = saveLambdaType,
+            function = saveLambda,
+            origin = IrStatementOrigin.LAMBDA,
+        )
     }
 
+    @OptIn(DeprecatedForRemovalCompilerApi::class, UnsafeDuringIrConstructionAPI::class)
     private fun DeclarationIrBuilder.buildRestoreLambda(
-        pluginContext: IrPluginContext,
         targetClass: IrClass,
         bundleClassSymbol: IrClassSymbol,
+        primaryConstructor: IrConstructor,
         properties: List<IrProperty>,
     ): IrExpression {
         val irFactory = pluginContext.irFactory
+        val localParent = this.scope.getLocalDeclarationParent()
 
         val restoreLambda = irFactory.buildFun {
             name = Name.special("<anonymous>")
             returnType = targetClass.defaultType.makeNullable()
             origin = IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA
             visibility = DescriptorVisibilities.LOCAL
-        }.apply {
-            parent = this@buildRestoreLambda.scope.getLocalDeclarationParent()
+        }
 
-            val bundleParam = addValueParameter(
-                "bundle",
-                bundleClassSymbol.defaultType,
-            )
+        restoreLambda.parent = localParent
 
-            body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
-                // Get the primary constructor
-                val primaryConstructor = targetClass.primaryConstructor
-                    ?: error("Primary constructor not found")
+        val bundleParam = createValueParameter(restoreLambda, "bundle", 0, bundleClassSymbol.owner.defaultType)
 
-                // Restore each property from Bundle
-                val constructorArgs = properties.map { property ->
-                    val getStringFunction = bundleClassSymbol.owner.functions
-                        .firstOrNull { func ->
-                            func.name.asString() == "getString" &&
-                                func.valueParameters.size == 2
-                        } ?: error("Bundle.getString not found")
+        restoreLambda.valueParameters = listOf(bundleParam)
 
-                    irCall(getStringFunction).apply {
-                        dispatchReceiver = irGet(bundleParam)
-                        putValueArgument(0, irString(property.name.asString()))
-                        putValueArgument(1, irString("")) // default value
-                    }
+        restoreLambda.body = DeclarationIrBuilder(pluginContext, restoreLambda.symbol).irBlockBody {
+            val constructorArgs = properties.map { property ->
+                val getStringFunction = bundleClassSymbol.owner.functions
+                    .firstOrNull { func ->
+                        func.name.asString() == "getString" &&
+                            func.valueParameters.size == 2
+                    } ?: error("Bundle.getString not found")
+
+                irCall(getStringFunction.symbol).apply {
+                    dispatchReceiver = irGet(bundleParam)
+                    putValueArgument(0, irString(property.name.asString()))
+                    putValueArgument(1, irString(""))
                 }
-
-                // Create instance using primary constructor
-                +irReturn(irCallConstructor(primaryConstructor.symbol, constructorArgs))
             }
+
+            +irReturn(irCallConstructor(primaryConstructor.symbol, emptyList()).apply {
+                constructorArgs.forEachIndexed { i, arg ->
+                    putValueArgument(i, arg)
+                }
+            })
         }
 
         val restoreLambdaType = pluginContext.irBuiltIns.functionN(1).typeWith(
-            bundleClassSymbol.defaultType,
+            bundleClassSymbol.owner.defaultType,
             targetClass.defaultType.makeNullable(),
         )
 
-        return irBlock(resultType = restoreLambdaType) {
-            +restoreLambda
-            +irCallable(
-                callableId = CallableId(restoreLambda.symbol.ownerSymbol.name, restoreLambda.symbol.name),
-                type = restoreLambdaType,
-            )
-        }
-    }
-
-    private fun createCompanionObject(parentClass: IrClass): IrClass {
-        val companion = pluginContext.irFactory.buildClass {
-            name = Name.identifier("Companion")
-            kind = ClassKind.OBJECT
-            isCompanion = true
-            visibility = DescriptorVisibilities.PUBLIC
-            modality = Modality.FINAL
-        }.apply {
-            parent = parentClass
-            createImplicitParameterDeclarationWithWrappedDescriptor()
-            superTypes = listOf(pluginContext.irBuiltIns.anyType)
-
-            // Add primary constructor (required for objects)
-            addConstructor {
-                isPrimary = true
-                visibility = DescriptorVisibilities.PRIVATE
-            }.apply {
-                body = DeclarationIrBuilder(pluginContext, symbol).irBlockBody {
-                    +irDelegatingConstructorCall(
-                        pluginContext.irBuiltIns.anyClass.owner.constructors.single()
-                    )
-                    +IrInstanceInitializerCallImpl(
-                        startOffset, endOffset,
-                        this@apply.parentAsClass.symbol,
-                        pluginContext.irBuiltIns.unitType,
-                    )
-                }
-            }
-        }
-
-        parentClass.declarations.add(companion)
-        return companion
+        return IrFunctionExpressionImpl(
+            startOffset = UNDEFINED_OFFSET,
+            endOffset = UNDEFINED_OFFSET,
+            type = restoreLambdaType,
+            function = restoreLambda,
+            origin = IrStatementOrigin.LAMBDA,
+        )
     }
 }
