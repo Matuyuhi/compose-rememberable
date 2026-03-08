@@ -10,6 +10,7 @@ import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.declarations.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
 import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
 import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionExpressionImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrInstanceInitializerCallImpl
@@ -156,6 +157,42 @@ class RememberableIrTransformer(
         }
     }
 
+    private data class BundleMethodNames(val put: String, val get: String)
+
+    @OptIn(UnsafeDuringIrConstructionAPI::class)
+    private fun bundleMethodsForType(type: IrType): BundleMethodNames {
+        val builtIns = pluginContext.irBuiltIns
+        return when {
+            type.isInt() -> BundleMethodNames("putInt", "getInt")
+            type.isLong() -> BundleMethodNames("putLong", "getLong")
+            type.isFloat() -> BundleMethodNames("putFloat", "getFloat")
+            type.isDouble() -> BundleMethodNames("putDouble", "getDouble")
+            type.isBoolean() -> BundleMethodNames("putBoolean", "getBoolean")
+            type.isString() || type.isNullableString() -> BundleMethodNames("putString", "getString")
+            else -> BundleMethodNames("putString", "getString") // fallback: toString
+        }
+    }
+
+    private fun IrType.isString(): Boolean {
+        return isClassType(pluginContext.irBuiltIns.stringType.classFqName!!, false)
+    }
+
+    private fun IrType.isNullableString(): Boolean {
+        return isClassType(pluginContext.irBuiltIns.stringType.classFqName!!, true)
+    }
+
+    private fun IrType.isClassType(fqName: FqName, nullable: Boolean): Boolean {
+        if (this !is IrSimpleType) return false
+        if (this.isMarkedNullable() != nullable) return false
+        return this.classFqName == fqName
+    }
+
+    private fun needsToStringConversion(type: IrType): Boolean {
+        return !type.isInt() && !type.isLong() && !type.isFloat() &&
+            !type.isDouble() && !type.isBoolean() && !type.isString() &&
+            !type.isNullableString()
+    }
+
     @OptIn(DeprecatedForRemovalCompilerApi::class, UnsafeDuringIrConstructionAPI::class)
     private fun DeclarationIrBuilder.buildSaveLambda(
         targetClass: IrClass,
@@ -184,16 +221,34 @@ class RememberableIrTransformer(
             val bundleVar = irTemporary(irCallConstructor(bundleConstructor.symbol, emptyList()))
 
             properties.forEach { property ->
+                val propertyType = property.backingField!!.type
+                val methods = bundleMethodsForType(propertyType)
+
                 val putFunction = bundleClassSymbol.owner.functions
                     .firstOrNull { func ->
-                        func.name.asString() == "putString" &&
+                        func.name.asString() == methods.put &&
                             func.valueParameters.size == 2
-                    } ?: error("Bundle.putString not found")
+                    } ?: error("Bundle.${methods.put} not found")
+
+                val fieldValue = irGetField(irGet(valueParam), property.backingField!!)
+
+                val valueArg = if (needsToStringConversion(propertyType)) {
+                    // Call toString() for unsupported types
+                    val toStringFunc = propertyType.classOrNull!!.owner.functions
+                        .firstOrNull { it.name.asString() == "toString" && it.valueParameters.isEmpty() }
+                        ?: pluginContext.irBuiltIns.anyClass.owner.functions
+                            .first { it.name.asString() == "toString" && it.valueParameters.isEmpty() }
+                    irCall(toStringFunc.symbol).apply {
+                        dispatchReceiver = fieldValue
+                    }
+                } else {
+                    fieldValue
+                }
 
                 +irCall(putFunction.symbol).apply {
                     dispatchReceiver = irGet(bundleVar)
                     putValueArgument(0, irString(property.name.asString()))
-                    putValueArgument(1, irGetField(irGet(valueParam), property.backingField!!))
+                    putValueArgument(1, valueArg)
                 }
             }
 
@@ -240,16 +295,28 @@ class RememberableIrTransformer(
 
         restoreLambda.body = DeclarationIrBuilder(pluginContext, restoreLambda.symbol).irBlockBody {
             val constructorArgs = properties.map { property ->
-                val getStringFunction = bundleClassSymbol.owner.functions
-                    .firstOrNull { func ->
-                        func.name.asString() == "getString" &&
-                            func.valueParameters.size == 2
-                    } ?: error("Bundle.getString not found")
+                val propertyType = property.backingField!!.type
+                val methods = bundleMethodsForType(propertyType)
 
-                irCall(getStringFunction.symbol).apply {
+                val getFunction = bundleClassSymbol.owner.functions
+                    .firstOrNull { func ->
+                        func.name.asString() == methods.get &&
+                            func.valueParameters.size == 2
+                    } ?: error("Bundle.${methods.get} not found")
+
+                val defaultValue: IrExpression = when {
+                    propertyType.isInt() -> irInt(0)
+                    propertyType.isLong() -> irLong(0L)
+                    propertyType.isFloat() -> IrConstImpl.float(UNDEFINED_OFFSET, UNDEFINED_OFFSET, pluginContext.irBuiltIns.floatType, 0f)
+                    propertyType.isDouble() -> IrConstImpl.double(UNDEFINED_OFFSET, UNDEFINED_OFFSET, pluginContext.irBuiltIns.doubleType, 0.0)
+                    propertyType.isBoolean() -> irFalse()
+                    else -> irString("")
+                }
+
+                irCall(getFunction.symbol).apply {
                     dispatchReceiver = irGet(bundleParam)
                     putValueArgument(0, irString(property.name.asString()))
-                    putValueArgument(1, irString(""))
+                    putValueArgument(1, defaultValue)
                 }
             }
 
