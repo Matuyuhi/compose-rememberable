@@ -3,11 +3,21 @@
     <name>Rememberable</name>
     <vendor url="https://github.com/matuyuhi/compose-rememberable">matuyuhi</vendor>
     <description><![CDATA[
-        <p>IDE support for the <b>Rememberable</b> Kotlin compiler plugin.</p>
+        <p>IDE support for the <b>Rememberable</b> Kotlin compiler plugin (<code>com.matuyuhi.rememberable</code>).</p>
         <p>Resolves <code>@Rememberable</code> generated <code>Saver</code> properties in K2 mode,
         eliminating false "Unresolved reference" errors in the editor.</p>
-        <p>Requires the Rememberable Gradle plugin to be applied in your project.
-        See <a href="https://github.com/matuyuhi/compose-rememberable">GitHub</a> for setup instructions.</p>
+
+        <h3>Setup</h3>
+        <ol>
+            <li>Apply the Gradle plugin in your project:
+                <pre>plugins {
+    id("com.matuyuhi.rememberable") version "0.1.6"
+}</pre>
+            </li>
+            <li>Install this IDE plugin</li>
+        </ol>
+
+        <p>See <a href="https://github.com/matuyuhi/compose-rememberable">GitHub</a> for full documentation.</p>
     ]]></description>
 
     <change-notes><![CDATA[
