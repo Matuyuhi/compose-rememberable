@@ -53,6 +53,8 @@ mavenPublishing {
     signAllPublications()
 
     pom {
+        name.set("Rememberable Compiler")
+        description.set("Kotlin compiler plugin that generates Saver for rememberSaveable from @Rememberable annotated classes")
         url.set("https://github.com/matuyuhi/compose-rememberable")
         licenses {
             license {

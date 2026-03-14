@@ -20,6 +20,8 @@ mavenPublishing {
     signAllPublications()
 
     pom {
+        name.set("Rememberable Annotations")
+        description.set("Annotations for the Rememberable Kotlin compiler plugin that generates Saver for rememberSaveable")
         url.set("https://github.com/matuyuhi/compose-rememberable")
         licenses {
             license {
