@@ -22,7 +22,7 @@ kotlin {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2024.3.3")
+        intellijIdeaCommunity("2025.2.1")
         bundledPlugin("org.jetbrains.kotlin")
 
         pluginVerifier()
@@ -37,7 +37,7 @@ intellijPlatform {
 
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "243"
+            sinceBuild = "252"
             untilBuild = provider { null }
         }
     }
