@@ -34,4 +34,6 @@ rootProject.name = "compose-rememberable"
 include(":rememberable-annotations")
 include(":rememberable-compiler")
 include(":rememberable-gradle-plugin")
-include(":sample-app")
+if (System.getenv("CI") == null) {
+    include(":sample-app")
+}
