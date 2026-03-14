@@ -13,13 +13,23 @@ on:
           - major
 
 jobs:
-  bump:
+  bump-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Get current version
         id: current
@@ -53,3 +63,8 @@ jobs:
           git commit -m "Bump version to ${{ steps.next.outputs.version }}"
           git tag "v${{ steps.next.outputs.version }}"
           git push origin main --tags
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publish --no-configuration-cache --stacktrace
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
