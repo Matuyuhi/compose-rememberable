@@ -72,3 +72,9 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+      - name: Build and publish IntelliJ plugin
+        run: ./gradlew -p rememberable-intellij publishPlugin -PrememberableVersion=${{ steps.next.outputs.version }}
+        env:
+          INTELLIJ_MARKETPLACE_TOKEN: ${{ secrets.INTELLIJ_MARKETPLACE_TOKEN }}
+          INTELLIJ_PLUGIN_SIGNING_PASSWORD: ${{ secrets.INTELLIJ_PLUGIN_SIGNING_PASSWORD }}

@@ -3,7 +3,8 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.13.0"
 }
 
-val rememberableVersion = "0.1.6"
+val rememberableVersion: String = providers.gradleProperty("rememberableVersion")
+    .getOrElse("0.2.0")
 
 group = "com.matuyuhi"
 version = rememberableVersion
