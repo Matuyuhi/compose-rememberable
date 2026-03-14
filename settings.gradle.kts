@@ -1,12 +1,6 @@
 pluginManagement {
     plugins {
-        id("com.android.application") version "9.1.0"
-        id("org.jetbrains.kotlin.jvm") version "2.2.10"
-        id("org.jetbrains.kotlin.kapt") version "2.2.10"
-        id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
-        id("org.jetbrains.kotlin.android") version "2.2.10"
-        id("com.vanniktech.maven.publish") version "0.29.0"
-        id("com.matuyuhi.rememberable") version "0.1.0"
+        id("com.matuyuhi.rememberable") version "0.1.0" apply false
     }
     repositories {
         google {
@@ -38,7 +32,6 @@ dependencyResolutionManagement {
 rootProject.name = "compose-rememberable"
 
 include(":rememberable-annotations")
-include(":rememberable-runtime")
 include(":rememberable-compiler")
 include(":rememberable-gradle-plugin")
 include(":sample-app")

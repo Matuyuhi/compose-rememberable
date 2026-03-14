@@ -1,7 +1,14 @@
 plugins {
-    kotlin("jvm")
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.buildconfig)
+    alias(libs.plugins.maven.publish)
     `java-gradle-plugin`
-    id("com.vanniktech.maven.publish") version "0.29.0"
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs(listOf("src"))
+    }
 }
 
 kotlin {
@@ -13,10 +20,30 @@ dependencies {
     compileOnly(libs.kotlin.gradle.plugin)
 }
 
+buildConfig {
+    packageName("com.matuyuhi.rememberable.gradle")
+
+    buildConfigField("String", "KOTLIN_PLUGIN_ID", "\"${rootProject.group}.rememberable\"")
+
+    val pluginProject = project(":rememberable-compiler")
+    buildConfigField("String", "KOTLIN_PLUGIN_GROUP", "\"${pluginProject.group}\"")
+    buildConfigField("String", "KOTLIN_PLUGIN_NAME", "\"${pluginProject.name}\"")
+    buildConfigField("String", "KOTLIN_PLUGIN_VERSION", "\"${pluginProject.version}\"")
+
+    val annotationsProject = project(":rememberable-annotations")
+    buildConfigField(
+        type = "String",
+        name = "ANNOTATIONS_LIBRARY_COORDINATES",
+        expression = "\"${annotationsProject.group}:${annotationsProject.name}:${annotationsProject.version}\"",
+    )
+}
+
 gradlePlugin {
     plugins {
         create("rememberable") {
-            id = "com.matuyuhi.rememberable"
+            id = "${rootProject.group}.rememberable"
+            displayName = "Rememberable"
+            description = "Kotlin compiler plugin for Compose state persistence"
             implementationClass = "com.matuyuhi.rememberable.gradle.RememberableGradlePlugin"
         }
     }

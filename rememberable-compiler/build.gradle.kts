@@ -1,30 +1,44 @@
 plugins {
-    kotlin("jvm")
-    kotlin("kapt")
-    id("com.vanniktech.maven.publish") version "0.29.0"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.buildconfig)
+    alias(libs.plugins.maven.publish)
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs(listOf("src"))
+        resources.setSrcDirs(listOf("resources"))
+    }
+    test {
+        java.setSrcDirs(listOf("test"))
+    }
 }
 
 kotlin {
     jvmToolchain(21)
     compilerOptions {
         optIn.addAll(
-            "org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI",
             "org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi",
+            "org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI",
         )
     }
 }
 
-dependencies {
-    compileOnly(libs.kotlin.compiler.embeddable)
+buildConfig {
+    useKotlinOutput {
+        internalVisibility = true
+    }
+    packageName("com.matuyuhi.rememberable.compiler")
+    buildConfigField("String", "KOTLIN_PLUGIN_ID", "\"${rootProject.group}.rememberable\"")
+}
 
-    kapt(libs.auto.service)
-    compileOnly(libs.auto.service.annotations)
+dependencies {
+    compileOnly(libs.kotlin.compiler)
 
     testImplementation(kotlin("test"))
-    testImplementation(libs.kotlin.compiler.embeddable)
+    testImplementation(libs.kotlin.compiler)
     testImplementation(libs.kctfork.core)
     testImplementation(libs.junit)
-
     testImplementation(project(":rememberable-annotations"))
 }
 

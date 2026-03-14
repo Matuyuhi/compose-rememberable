@@ -1,6 +1,12 @@
 plugins {
-    kotlin("jvm")
-    id("com.vanniktech.maven.publish") version "0.29.0"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.maven.publish)
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs(listOf("src"))
+    }
 }
 
 kotlin {
