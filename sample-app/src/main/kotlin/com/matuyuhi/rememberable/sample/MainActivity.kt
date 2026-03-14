@@ -26,11 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.matuyuhi.rememberable.Rememberable
 
-@Rememberable
-data class FilterState(
-    val query: String,
-    val page: Int
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +39,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+@Rememberable
+data class FilterState(
+    val query: String,
+    val page: Int
+)
 
 @Composable
 fun SampleScreen() {

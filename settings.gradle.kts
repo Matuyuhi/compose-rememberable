@@ -1,6 +1,6 @@
 pluginManagement {
     plugins {
-        id("com.matuyuhi.rememberable") version "0.1.0" apply false
+        id("com.matuyuhi.rememberable") version "0.1.6" apply false
     }
     repositories {
         google {
@@ -12,7 +12,6 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
-        mavenLocal()
     }
 }
 
@@ -36,4 +35,5 @@ include(":rememberable-compiler")
 include(":rememberable-gradle-plugin")
 if (System.getenv("CI") == null) {
     include(":sample-app")
+    includeBuild("rememberable-intellij")
 }

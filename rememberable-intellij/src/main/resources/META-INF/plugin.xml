@@ -1,0 +1,27 @@
+<idea-plugin>
+    <id>com.matuyuhi.rememberable.ide</id>
+    <name>Rememberable</name>
+    <vendor url="https://github.com/matuyuhi/compose-rememberable">matuyuhi</vendor>
+    <description><![CDATA[
+        <p>IDE support for the <b>Rememberable</b> Kotlin compiler plugin.</p>
+        <p>Resolves <code>@Rememberable</code> generated <code>Saver</code> properties in K2 mode,
+        eliminating false "Unresolved reference" errors in the editor.</p>
+        <p>Requires the Rememberable Gradle plugin to be applied in your project.
+        See <a href="https://github.com/matuyuhi/compose-rememberable">GitHub</a> for setup instructions.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <ul>
+            <li>Initial release — K2 FIR extension support for IDE analysis</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.kotlin</depends>
+
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" supportsK1="false"/>
+        <fir.extensions.firExtensionRegistrar
+            implementation="com.matuyuhi.rememberable.compiler.RememberableFirExtensionRegistrar"/>
+    </extensions>
+</idea-plugin>
